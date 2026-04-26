@@ -33,7 +33,7 @@ class TopProcessesWidget(BaseWidget):
                 st.info("No process data yet. Waiting for collector…")
                 return
 
-            display = df.rename(
+            df_display = df.rename(
                 columns={
                     "pid": "PID",
                     "name": "Process",
@@ -44,20 +44,9 @@ class TopProcessesWidget(BaseWidget):
                 }
             ).copy()
 
-            display["CPU %"] = display["CPU %"].round(1)
-            display["Memory MB"] = display["Memory MB"].round(1)
-            display["Threads"] = display["Threads"].astype(int)
-
-            def _row_style(row):
-                if row["Process"] == "WindowServer":
-                    return ["background-color: rgba(255,107,107,0.18)"] * len(row)
-                return [""] * len(row)
-
-            styled = (
-                display.style.apply(_row_style, axis=1)
-                .format({"CPU %": "{:.1f}%", "Memory MB": "{:.1f}"})
-                .set_properties(**{"text-align": "right"}, subset=["CPU %", "Memory MB", "Threads"])
+            df_display["CPU %"] = df_display["CPU %"].round(1)
+            df_display["Memory MB"] = df_display["Memory MB"].round(1)
+            df_display["Threads"] = df_display["Threads"].astype(int)
+            st.dataframe(
+                df_display, use_container_width=True, height=390, hide_index=True
             )
-
-            st.dataframe(styled, use_container_width=True, height=390, hide_index=True)
-            st.caption("WindowServer rows are highlighted in red. Refreshed every ~2 s.")

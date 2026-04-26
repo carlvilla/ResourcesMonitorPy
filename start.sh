@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Start the macOS Monitor stack:
+# Start the resources Monitor stack:
 #   1. Build & launch MySQL + Streamlit in Docker
 #   2. Start the host-side metric collector (needs native macOS psutil access)
 
@@ -7,12 +7,12 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 COLLECTOR="$SCRIPT_DIR/collector/collector.py"
-PID_FILE="$SCRIPT_DIR/.collector.pid"
+PID_FILE="$SCRIPT_DIR/.collector.pid" # Collects the PID of the collector process to be able to kill it
 
 # ── Sanity checks ──────────────────────────────────────────────────────────
 
 if ! command -v docker &>/dev/null; then
-  echo "Docker not found. Please install Docker Desktop for Mac." >&2
+  echo "Docker not found. Please install it first in your system." >&2
   exit 1
 fi
 
@@ -49,7 +49,7 @@ if [[ ! -f "$PID_FILE" ]]; then
   echo "Starting host-side metric collector…"
   # Load .env so the collector inherits DB_ vars on the host
   set -a; source "$SCRIPT_DIR/.env"; set +a
-  nohup uv run "$COLLECTOR" >> "$SCRIPT_DIR/collector.log" 2>&1 &
+  nohup uv run "$COLLECTOR" >> "$SCRIPT_DIR/logs/collector.log" 2>&1 &
   echo $! > "$PID_FILE"
   sleep 1
   if kill -0 "$(cat "$PID_FILE")" 2>/dev/null; then
@@ -63,5 +63,5 @@ fi
 # ── Done ───────────────────────────────────────────────────────────────────
 
 echo ""
-echo "Monitor is live → http://localhost:8501"
+echo "Monitor is live → http://localhost:${STREAMLIT_PORT}"
 echo "   Stop with: ./stop.sh"

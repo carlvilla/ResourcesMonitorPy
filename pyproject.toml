@@ -6,6 +6,8 @@ readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
     "anthropic>=0.26.0",
+    "debugpy>=1.8.20",
+    "litellm>=1.83.14",
     "mysql-connector-python>=8.3.0",
     "openai>=1.30.0",
     "pandas>=2.0.0",
@@ -15,4 +17,9 @@ dependencies = [
     "sqlalchemy>=2.0.0",
     "streamlit>=1.35.0",
     "streamlit-autorefresh>=1.0.1",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.3",
 ]

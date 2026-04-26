@@ -37,7 +37,7 @@ class CpuCoreHeatmapWidget(BaseWidget):
             pivot = (
                 df.pivot_table(
                     index="core_id",
-                    columns="ts",
+                    columns="timestamp",
                     values="cpu_percent",
                     aggfunc="mean",
                 )
@@ -76,7 +76,3 @@ class CpuCoreHeatmapWidget(BaseWidget):
                 paper_bgcolor="rgba(0,0,0,0)",
             )
             st.plotly_chart(fig, use_container_width=True, key=f"heatmap_{time_range}")
-            st.caption(
-                "Colour scale: green → low, yellow → medium, red → high CPU. "
-                "Data spans historical records **and** live samples within the selected window."
-            )

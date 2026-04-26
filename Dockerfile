@@ -20,13 +20,12 @@ WORKDIR /app
 # copied here so the image works standalone.
 COPY app/ .
 
-EXPOSE 8501
+EXPOSE ${STREAMLIT_SERVER_PORT}
 
 HEALTHCHECK --interval=10s --timeout=5s --retries=5 \
-    CMD curl -sf http://localhost:8501/_stcore/health || exit 1
+    CMD curl -sf http://localhost:${STREAMLIT_SERVER_PORT}/_stcore/health || exit 1
 
 CMD ["streamlit", "run", "main.py", \
-     "--server.port=8501", \
      "--server.address=0.0.0.0", \
      "--server.headless=true", \
      "--browser.gatherUsageStats=false"]

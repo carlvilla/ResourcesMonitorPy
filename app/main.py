@@ -2,21 +2,41 @@
 
 from __future__ import annotations
 
+import logging
+import os
+
 import streamlit as st
-from config import (
-    ANTHROPIC_API_KEY,
-    LLM_MODEL,
-    TIME_RANGES,
-)
+from config import TIME_RANGES
 from database import DatabaseManager
 from llm_analyzer import analyze
 from streamlit_autorefresh import st_autorefresh
+from utils import _f
 from widgets import (
+    CpuBreakdownWidget,
     CpuCoreHeatmapWidget,
     CpuPerCoreWidget,
+    InterruptsCtxSwitchesWidget,
+    InterruptSourcesWidget,
+    ProcessCpuWidget,
     TopProcessesWidget,
-    WindowServerCpuWidget,
 )
+
+log = logging.getLogger(__name__)
+
+
+@st.cache_resource
+def _start_debugpy() -> tuple[str, int] | None:
+    if os.environ.get("DEBUGPY") != "1":
+        return None
+    import debugpy
+
+    port = int(os.environ["DEBUGPY_PORT"])
+    debugpy.listen(("0.0.0.0", port))
+    log.warning("debugpy listening on 0.0.0.0:%d", port)
+    return ("0.0.0.0", port)
+
+
+_start_debugpy()
 
 # ── Page config ────────────────────────────────────────────────────────────
 
@@ -68,13 +88,6 @@ with st.sidebar:
     )
 
     st.markdown("---")
-    st.caption(
-        "Charts always show **[now − window, now]**, "
-        "merging historical DB rows with live data. "
-        "Restarting the app does **not** lose past metrics."
-    )
-
-    st.markdown("---")
     st.markdown("**LLM Analysis**")
     run_llm = st.button("🔍 Analyse now", use_container_width=True)
 
@@ -85,25 +98,13 @@ with st.sidebar:
 if auto_refresh:
     st_autorefresh(interval=2_000, limit=None, key="autorefresh")
 
-# ── Helper: safe float ────────────────────────────────────────────────────
-
-
-def _f(val, decimals: int = 1, suffix: str = "") -> str:
-    if val is None:
-        return "—"
-    try:
-        return f"{float(val):.{decimals}f}{suffix}"
-    except TypeError, ValueError:
-        return "—"
-
+st.markdown("## 🖥️ Resources Analyzer")
+st.markdown('<div class="top-panel">', unsafe_allow_html=True)
 
 # ── Top panel (8 real-time metrics) ───────────────────────────────────────
 
-st.markdown("## 🖥️ macOS WindowServer Monitor")
-st.markdown('<div class="top-panel">', unsafe_allow_html=True)
-
 sys_latest = db.get_system_latest()
-ws_latest = db.get_windowserver_latest()
+ws_latest = db.get_process_latest("WindowServer")
 
 (c1, c2, c3, c4, c5, c6, c7, c8) = st.columns(8)
 
@@ -120,18 +121,18 @@ if sys_latest is not None:
 
     # Estimated WindowServer IRQs: proportional to its CPU share
     ws_cpu = float((ws_latest["cpu_percent"] if ws_latest is not None else None) or 0)
-    ws_irqs = irqs_s * (ws_cpu / max(cpu_total, 1))
 
     c1.metric("Total CPU %", _f(cpu_total, suffix="%"))
     c2.metric("IRQs/s", _f(irqs_s, 0))
     c3.metric("Ctx Switches/s", _f(ctx_s, 0))
     c4.metric("Load Avg (1m)", _f(load_1m, 2))
+    # The IO Wait cannot be extracted in macOS
     c5.metric("IO Wait %", _f(io_wait, suffix="%") if io_wait else "N/A (macOS)")
     c6.metric("RAM Used", f"{ram_mb / 1024:.1f} GB ({_f(ram_pct)}%)")
     c7.metric("Processes (R/D)", f"{p_run} / {p_blk}")
-    c8.metric("WS IRQs/s (est.)", _f(ws_irqs, 0))
 else:
-    for col in (c1, c2, c3, c4, c5, c6, c7, c8):
+    # There is no data in the database
+    for col in (c1, c2, c3, c4, c5, c6, c7):
         col.metric("—", "—")
     st.warning("No data yet — is the collector running on the host?", icon="⚠️")
 
@@ -141,41 +142,21 @@ st.markdown("</div>", unsafe_allow_html=True)
 # Add new widgets here — they automatically receive `db` and the selected
 # time range.  Order determines render order on the page.
 
-WIDGETS = [
-    WindowServerCpuWidget(db),
-    CpuCoreHeatmapWidget(db),
-    CpuPerCoreWidget(db),
-    TopProcessesWidget(db),
-]
-
 # ── Widget rendering ───────────────────────────────────────────────────────
 
-# WindowServer CPU gets a dedicated time-range dropdown
-ws_widget = WIDGETS[0]
-with st.container():
-    header_col, sel_col = st.columns([4, 1])
-    with header_col:
-        st.markdown(
-            f'<p class="widget-header">{ws_widget.title}</p>', unsafe_allow_html=True
-        )
-    with sel_col:
-        ws_range = st.selectbox(
-            "Range",
-            options=list(TIME_RANGES.keys()),
-            format_func=lambda k: TIME_RANGES[k]["label"],
-            index=list(TIME_RANGES.keys()).index(time_range),
-            key="ws_cpu_range",
-            label_visibility="collapsed",
-        )
-    ws_widget.render(st.container(), ws_range)
-
+# Process CPU usage — dropdown is rendered by the widget itself
+process_widget = ProcessCpuWidget(db)
+st.markdown(
+    f'<p class="widget-header">{process_widget.title}</p>', unsafe_allow_html=True
+)
+process_widget.render(st.container(), time_range)
 st.divider()
 
 # Heatmap + per-core side by side
 col_left, col_right = st.columns(2)
 
-heatmap_widget = WIDGETS[1]
-per_core_widget = WIDGETS[2]
+heatmap_widget = CpuCoreHeatmapWidget(db)
+per_core_widget = CpuPerCoreWidget(db)
 
 with col_left:
     st.markdown(
@@ -188,32 +169,49 @@ with col_right:
         f'<p class="widget-header">{per_core_widget.title}</p>', unsafe_allow_html=True
     )
     per_core_widget.render(st.container(), time_range)
+st.divider()
 
+# CPU breakdown widget
+cpu_breakdown_widget = CpuBreakdownWidget(db)
+st.markdown(
+    f'<p class="widget-header">{cpu_breakdown_widget.title}</p>', unsafe_allow_html=True
+)
+cpu_breakdown_widget.render(st.container(), time_range)
+st.divider()
+
+# Interrupts & context switches over time
+interrupts_widget = InterruptsCtxSwitchesWidget(db)
+st.markdown(
+    f'<p class="widget-header">{interrupts_widget.title}</p>', unsafe_allow_html=True
+)
+interrupts_widget.render(st.container(), time_range)
+st.divider()
+
+# Top interrupt sources (powermetrics)
+interrupt_sources_widget = InterruptSourcesWidget(db)
+st.markdown(
+    f'<p class="widget-header">{interrupt_sources_widget.title}</p>',
+    unsafe_allow_html=True,
+)
+interrupt_sources_widget.render(st.container(), time_range)
 st.divider()
 
 # Top processes — full width
-top_widget = WIDGETS[3]
+top_widget = TopProcessesWidget(db)
 st.markdown(f'<p class="widget-header">{top_widget.title}</p>', unsafe_allow_html=True)
 top_widget.render(st.container(), time_range)
-
-# Any extra widgets added to WIDGETS beyond index 3 render here automatically
-for widget in WIDGETS[4:]:
-    st.divider()
-    st.markdown(f'<p class="widget-header">{widget.title}</p>', unsafe_allow_html=True)
-    widget.render(st.container(), time_range)
+st.divider()
 
 # ── LLM Analysis ──────────────────────────────────────────────────────────
-
-st.divider()
 st.markdown("### 🤖 LLM Analysis & Recommendations")
 
 if run_llm:
-    with st.spinner("Analysing metrics…"):
-        result = analyze(
-            db,
-            model=LLM_MODEL,
-            anthropic_key=ANTHROPIC_API_KEY,
-        )
+    # The Process CPU widget owns the dropdown and writes its choice into
+    # `st.session_state["selected_process"]`. Fall back to "WindowServer" if
+    # the widget hasn't rendered yet on this run
+    selected_process = st.session_state.get("selected_process", "WindowServer")
+    with st.spinner(f"Analysing metrics for **{selected_process}**…"):
+        result = analyze(db, process_name=selected_process)
     st.markdown(result)
 else:
     st.info(

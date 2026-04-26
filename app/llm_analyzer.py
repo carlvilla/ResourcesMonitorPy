@@ -1,72 +1,78 @@
 """LLM-powered analysis of collected system metrics."""
 
-import logging
+from __future__ import annotations
 
-import anthropic
+import logging
+import os
+
+import litellm
+from config import PROMPT_LLM_ANALYZER
 from database import DatabaseManager
-from openai import OpenAI
 
 log = logging.getLogger(__name__)
 
+LLM_API_KEY = os.getenv("LLM_API_KEY")
+LLM_MODEL = os.getenv("LLM_MODEL")
 
-def build_prompt(db: DatabaseManager) -> str:
-    df = db.get_summary_for_llm(minutes=5)
+# Default lookback for the summary query, in minutes.
+DEFAULT_WINDOW_MINUTES = 5
+
+
+def _fmt(val, decimals: int = 1, suffix: str = "") -> str:
+    if val is None:
+        return "N/A"
+    return f"{float(val):.{decimals}f}{suffix}"
+
+
+def build_prompt(
+    db: DatabaseManager,
+    process_name: str,
+    minutes: int = DEFAULT_WINDOW_MINUTES,
+) -> str | None:
+    """Render the analyst prompt for *process_name*, or None if data is sparse."""
+    df = db.get_summary_for_llm(minutes=minutes, process_name=process_name)
     if df.empty or df.iloc[0]["avg_cpu"] is None:
-        return ""
+        return None
 
     m = df.iloc[0]
-
-    def fmt(val, decimals=1, suffix=""):
-        if val is None:
-            return "N/A"
-        return f"{float(val):.{decimals}f}{suffix}"
-
-    return f"""You are a macOS system performance analyst. Analyze the metrics below
-(collected over the last 5 minutes) and provide:
-1. A concise health assessment of the overall system.
-2. WindowServer-specific analysis — WindowServer manages all macOS GUI rendering,
-   so high CPU or many threads often indicates GPU pressure or compositing load.
-3. Any anomalies or concerns.
-4. Actionable recommendations (3–5 bullet points).
-
-## System Metrics (5-minute averages)
-- Total CPU: avg {fmt(m["avg_cpu"])}%, peak {fmt(m["max_cpu"])}%
-- Load avg (1 min): {fmt(m["avg_load"], 2)}
-- RAM: {fmt(m["avg_ram_pct"])}% used
-- Interrupts/s: {fmt(m["avg_irqs"], 0)}
-- Context switches/s: {fmt(m["avg_ctx"], 0)}
-
-## WindowServer Process
-- CPU: avg {fmt(m["ws_avg_cpu"])}%, peak {fmt(m["ws_max_cpu"])}%
-- Memory: {fmt(m["ws_avg_mem_mb"], 0)} MB
-- Active threads: {fmt(m["ws_threads"], 0)}
-
-Keep the response under 300 words and use markdown formatting."""
+    return PROMPT_LLM_ANALYZER.format(
+        minutes=minutes,
+        evaluated_process=process_name,
+        avg_cpu=_fmt(m["avg_cpu"]),
+        max_cpu=_fmt(m["max_cpu"]),
+        avg_load=_fmt(m["avg_load"], 2),
+        avg_ram_pct=_fmt(m["avg_ram_pct"]),
+        avg_irqs=_fmt(m["avg_irqs"], 0),
+        avg_ctx=_fmt(m["avg_ctx"], 0),
+        ws_avg_cpu=_fmt(m["proc_avg_cpu"]),
+        ws_max_cpu=_fmt(m["proc_max_cpu"]),
+        ws_avg_mem_mb=_fmt(m["proc_avg_mem_mb"], 0),
+        ws_threads=_fmt(m["proc_threads"], 0),
+    )
 
 
-def analyze(
-    db: DatabaseManager,
-    model: str,
-    anthropic_key: str,
-) -> str:
-    prompt = build_prompt(db)
-    if not prompt:
+def analyze(db: DatabaseManager, process_name: str) -> str:
+    """Run an LLM analysis of *process_name* over the last few minutes of metrics."""
+    if not LLM_API_KEY or not LLM_MODEL:
+        return (
+            "Set `LLM_API_KEY` and `LLM_MODEL` in `.env` to enable LLM analysis. "
+            "Model names follow LiteLLM format (see docs.litellm.ai)."
+        )
+
+    prompt = build_prompt(db, process_name)
+    if prompt is None:
         return (
             "Insufficient data for analysis. "
             "Please wait a few seconds for metrics to be collected."
         )
 
     try:
-        if not anthropic_key:
-            return "Set `ANTHROPIC_API_KEY` in `.env` to enable LLM analysis."
-        client = anthropic.Anthropic(api_key=anthropic_key)
-        msg = client.messages.create(
-            model=model,
-            max_tokens=1024,
+        response = litellm.completion(
+            model=LLM_MODEL,
+            api_key=LLM_API_KEY,
             messages=[{"role": "user", "content": prompt}],
         )
-        return msg.content[0].text
-
+        return response.choices[0].message.content or "(empty response)"
     except Exception as exc:
         log.error("LLM call failed: %s", exc)
         return f"LLM analysis failed: {exc}"

@@ -43,11 +43,11 @@ class CpuPerCoreWidget(BaseWidget):
 
             fig = go.Figure()
             for core_id in sorted(df["core_id"].unique()):
-                core_df = df[df["core_id"] == core_id].sort_values("ts")
+                core_df = df[df["core_id"] == core_id].sort_values("timestamp")
                 colour = _CORE_COLOURS[int(core_id) % len(_CORE_COLOURS)]
                 fig.add_trace(
                     go.Scatter(
-                        x=core_df["ts"],
+                        x=core_df["timestamp"],
                         y=core_df["cpu_percent"],
                         mode="lines",
                         name=f"Core {core_id}",
