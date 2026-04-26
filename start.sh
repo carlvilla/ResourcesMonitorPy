@@ -8,6 +8,9 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 COLLECTOR="$SCRIPT_DIR/collector/collector.py"
 PID_FILE="$SCRIPT_DIR/.collector.pid" # Collects the PID of the collector process to be able to kill it
+SUDO_PID_FILE="$SCRIPT_DIR/.sudo_refresher.pid" # Background keep-alive for sudo cache (powermetrics)
+DOCKER_LOGS_PID_FILE="$SCRIPT_DIR/.docker_logs.pid" # Background `docker compose logs -f` writer
+DOCKER_LOGS_FILE="$SCRIPT_DIR/logs/docker_containers.log"
 
 # ── Sanity checks ──────────────────────────────────────────────────────────
 
@@ -22,6 +25,25 @@ if [[ ! -f "$SCRIPT_DIR/.env" ]]; then
   echo "   Edit .env to set your API keys before running again."
 fi
 
+# Load .env once for the rest of the script (Docker compose, collector, final echo).
+set -a; source "$SCRIPT_DIR/.env"; set +a
+
+# ── Sudo credential cache (for powermetrics in the collector) ─────────────
+# powermetrics requires root. Instead of editing /etc/sudoers.d, we prime the
+# sudo credential cache once and keep it warm with a background refresher.
+# stop.sh kills the refresher and runs `sudo -k` to clear the cache.
+
+echo "Sudo permissions required to retrieve system information…" # needed for powermetrics interrupt sampling
+sudo -v
+
+if [[ -f "$SUDO_PID_FILE" ]] && kill -0 "$(cat "$SUDO_PID_FILE")" 2>/dev/null; then
+  echo "Sudo refresher already running (PID $(cat "$SUDO_PID_FILE"))."
+else
+  ( while true; do sudo -n true 2>/dev/null || exit; sleep 60; done ) &
+  echo $! > "$SUDO_PID_FILE"
+  echo "Sudo refresher started (PID $(cat "$SUDO_PID_FILE"))."
+fi
+
 # ── Docker stack ───────────────────────────────────────────────────────────
 
 echo "Building and starting Docker services…"
@@ -33,6 +55,18 @@ until docker compose -f "$SCRIPT_DIR/docker-compose.yml" \
   sleep 2
 done
 echo "MySQL is ready"
+
+# ── Docker container logs → file ───────────────────────────────────────────
+
+mkdir -p "$SCRIPT_DIR/logs"
+if [[ -f "$DOCKER_LOGS_PID_FILE" ]] && kill -0 "$(cat "$DOCKER_LOGS_PID_FILE")" 2>/dev/null; then
+  echo "Docker log tail already running (PID $(cat "$DOCKER_LOGS_PID_FILE"))."
+else
+  nohup docker compose -f "$SCRIPT_DIR/docker-compose.yml" logs -f --no-color --timestamps \
+    >> "$DOCKER_LOGS_FILE" 2>&1 &
+  echo $! > "$DOCKER_LOGS_PID_FILE"
+  echo "Docker logs → $DOCKER_LOGS_FILE (PID $(cat "$DOCKER_LOGS_PID_FILE"))"
+fi
 
 # ── Collector (host-side) ──────────────────────────────────────────────────
 
@@ -47,8 +81,6 @@ fi
 
 if [[ ! -f "$PID_FILE" ]]; then
   echo "Starting host-side metric collector…"
-  # Load .env so the collector inherits DB_ vars on the host
-  set -a; source "$SCRIPT_DIR/.env"; set +a
   nohup uv run "$COLLECTOR" >> "$SCRIPT_DIR/logs/collector.log" 2>&1 &
   echo $! > "$PID_FILE"
   sleep 1

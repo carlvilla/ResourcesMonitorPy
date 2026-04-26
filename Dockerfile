@@ -2,6 +2,13 @@ FROM ghcr.io/astral-sh/uv:python3.14-bookworm-slim
 
 # Install curl for the healthcheck
 RUN apt-get update && apt-get install -y --no-install-recommends curl \
+    libcairo2 \
+    libpango-1.0-0 \
+    libpangocairo-1.0-0 \
+    libgdk-pixbuf2.0-0 \
+    libglib2.0-0 \
+    shared-mime-info \
+    fonts-dejavu \
     && rm -rf /var/lib/apt/lists/*
 
 # Install dependencies into a venv outside /app so the runtime bind-mount

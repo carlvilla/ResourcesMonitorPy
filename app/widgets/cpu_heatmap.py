@@ -75,4 +75,4 @@ class CpuCoreHeatmapWidget(BaseWidget):
                 plot_bgcolor="rgba(0,0,0,0)",
                 paper_bgcolor="rgba(0,0,0,0)",
             )
-            st.plotly_chart(fig, use_container_width=True, key=f"heatmap_{time_range}")
+            st.plotly_chart(fig, width="stretch", key=f"heatmap_{time_range}")

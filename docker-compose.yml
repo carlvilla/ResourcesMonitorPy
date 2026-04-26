@@ -28,15 +28,14 @@ services:
       - "${STREAMLIT_PORT}:${STREAMLIT_PORT}"
       - "${DEBUGPY_PORT}:${DEBUGPY_PORT}"
     environment:
-      # Inside Docker the app reaches MySQL via the service name
-      DB_HOST:     mysql
-      DB_PORT:     "3306"
-      DB_NAME:     ${MYSQL_DATABASE}
-      DB_USER:     ${MYSQL_USER}
-      DB_PASSWORD: ${MYSQL_PASSWORD}
+      MYSQL_HOST:     mysql
+      MYSQL_PORT:     3306
+      MYSQL_NAME:     ${MYSQL_DATABASE}
+      MYSQL_USER:     ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
       # LLM — values come from .env on the host
       LLM_MODEL:        ${LLM_MODEL}
-      LLM_API_KEY: ${LLM_API_KEY}
+      LLM_API_KEY:      ${LLM_API_KEY}
       STREAMLIT_SERVER_PORT: ${STREAMLIT_PORT}
       # DEBUG
       DEBUGPY: ${DEBUGPY}

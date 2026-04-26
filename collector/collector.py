@@ -6,7 +6,6 @@ import os
 import re
 import subprocess
 import time
-from zoneinfo import ZoneInfo
 
 import mysql.connector
 import psutil
@@ -21,10 +20,10 @@ logging.basicConfig(
 log = logging.getLogger(__name__)
 
 DB_CONFIG = {
-    "host": os.getenv("DB_HOST", "127.0.0.1"),
-    "port": int(os.getenv("DB_PORT", "3307")),
-    "database": os.getenv("DB_NAME", "macmonitor"),
-    "user": os.getenv("DB_USER", "monitor"),
+    "host": os.getenv("MYSQL_HOST", "127.0.0.1"),
+    "port": int(os.getenv("MYSQL_PORT", "3307")),
+    "database": os.getenv("MYSQL_DATABASE", "macmonitor"),
+    "user": os.getenv("MYSQL_USER", "monitor"),
     "password": os.getenv("DB_PASSWORD", "monitor123"),
 }
 
@@ -52,9 +51,12 @@ def normalize_process_cpu(cpu_raw: float, num_cores: int = NUM_CORES) -> float:
 
 
 # ── Per-process sample builders ────────────────────────────────────────────
-# Both functions return the same `(pid, name, cpu, mem_mb, status, threads)`
-# tuple shape so callers (and tests) can treat them interchangeably.
-ProcessSample = tuple[int, str, float, float, str, int]
+# Both functions return the same tuple shape so callers (and tests) can treat
+# them interchangeably:
+#   (pid, name, cpu, mem_mb, status, threads, vol_ctx_sw, invol_ctx_sw)
+# The ctx-switch fields are cumulative counters (BIGINT in MySQL); the widget
+# computes per-second rates from successive samples.
+ProcessSample = tuple[int, str, float, float, str, int, int, int]
 
 
 def sample_process_via_psutil(proc) -> ProcessSample | None:
@@ -67,6 +69,13 @@ def sample_process_via_psutil(proc) -> ProcessSample | None:
         info = proc.info
         cpu_raw = info.get("cpu_percent") or 0.0
         mem_info = info.get("memory_info")
+        # num_ctx_switches() is a method, not a oneshot info attr; call it
+        # directly. Cumulative since the process started.
+        try:
+            ctx = proc.num_ctx_switches()
+            vol_ctx, invol_ctx = int(ctx.voluntary), int(ctx.involuntary)
+        except psutil.AccessDenied, psutil.NoSuchProcess:
+            vol_ctx = invol_ctx = 0
         return (
             info.get("pid"),
             (info.get("name") or "")[:255],
@@ -74,8 +83,10 @@ def sample_process_via_psutil(proc) -> ProcessSample | None:
             (mem_info.rss / 1024 / 1024) if mem_info else 0.0,
             (info.get("status") or "")[:50],
             info.get("num_threads") or 0,
+            vol_ctx,
+            invol_ctx,
         )
-    except (psutil.NoSuchProcess, psutil.AccessDenied):
+    except psutil.NoSuchProcess, psutil.AccessDenied:
         return None
 
 
@@ -86,6 +97,8 @@ def sample_process_via_ps(
 
     Used for WindowServer (SIP-blocked under macOS). Returns None on failure.
     CPU% is always normalized to whole-system 0-100% before being returned.
+    `ps` does not portably expose context-switch counters, so those fields
+    are reported as 0 for ps-sourced samples.
     """
     stats = read_process_via_ps(pid)
     if stats is None:
@@ -98,7 +111,10 @@ def sample_process_via_ps(
         mem_mb,
         status[:50],
         threads,
+        0,
+        0,
     )
+
 
 # Rolling counters for rate calculations
 _prev_interrupts: int | None = None
@@ -174,18 +190,20 @@ def read_process_via_ps(pid: int) -> tuple[float, float, int] | None:
             float(rss_str) / 1024,  # ps reports RSS in KB
             max(0, len(threads_out) - 1),  # minus header row
         )
-    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, ValueError):
+    except subprocess.CalledProcessError, subprocess.TimeoutExpired, ValueError:
         return None
 
 
 # Match lines like:
 #   Vector 0x40 (TIMER): 1234 interrupts ...
+#   Vector 0x00000040(TIMER):     1234     247.31/s         <- no space before '('
 #   TIMER: 1234
 #   IOPMrootDomain: 567 interrupts ...
 # Across CPUs the same source name appears multiple times; we sum.
 _INTERRUPT_LINE_RE = re.compile(
-    r"^\s*(?:Vector\s+0x[0-9a-fA-F]+\s+\(([^)]+)\)|([A-Za-z_][\w\s\-/.]*?))\s*:\s*(\d+)"
+    r"^\s*(?:Vector\s+0x[0-9a-fA-F]+\s*\(([^)]+)\)|([A-Za-z_][\w\s\-/.]*?))\s*:\s*(\d+)"
 )
+_INTERRUPT_HEADER_RE = re.compile(r"interrupt\s+distribution", re.IGNORECASE)
 
 
 def collect_interrupt_sources(window_ms: int = 1000) -> dict[str, float]:
@@ -219,11 +237,17 @@ def collect_interrupt_sources(window_ms: int = 1000) -> dict[str, float]:
     seconds = window_ms / 1000.0
     sources: dict[str, float] = {}
     in_block = False
+    saw_header = False
     for line in result.stdout.splitlines():
-        if "Interrupt distribution" in line:
+        if _INTERRUPT_HEADER_RE.search(line):
             in_block = True
+            saw_header = True
             continue
-        if in_block and line.startswith("***") and "Interrupt" not in line:
+        if (
+            in_block
+            and line.startswith("***")
+            and not _INTERRUPT_HEADER_RE.search(line)
+        ):
             in_block = False
             continue
         if not in_block:
@@ -236,6 +260,7 @@ def collect_interrupt_sources(window_ms: int = 1000) -> dict[str, float]:
             continue
         count = int(m.group(3))
         sources[name] = sources.get(name, 0.0) + count / seconds
+
     return sources
 
 
@@ -317,19 +342,22 @@ def insert_system_metrics(
     )
 
 
-def insert_process_metrics(cursor, ts, pid, name, cpu, mem, status, threads) -> None:
+def insert_process_metrics(
+    cursor, ts, pid, name, cpu, mem, status, threads, vol_ctx, invol_ctx
+) -> None:
     cursor.execute(
         """
         INSERT INTO process_metrics
-            (timestamp, pid, name, cpu_percent, memory_mb, status, num_threads)
-        VALUES (%s,%s,%s,%s,%s,%s,%s)
+            (timestamp, pid, name, cpu_percent, memory_mb, status, num_threads,
+             voluntary_ctx_switches, involuntary_ctx_switches)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
         """,
-        (ts, pid, name, cpu, mem, status, threads),
+        (ts, pid, name, cpu, mem, status, threads, vol_ctx, invol_ctx),
     )
 
 
 def collect_and_store(cursor):
-    ts = datetime.datetime.now(datetime.UTC)  # .astimezone(ZoneInfo("Europe/Madrid"))
+    ts = datetime.datetime.now(datetime.UTC)
 
     # ── System ──────────────────────────────────────────────────────────────
     cpu_total = psutil.cpu_percent(interval=None)
@@ -357,7 +385,7 @@ def collect_and_store(cursor):
                 procs_running += 1
             elif s in (psutil.STATUS_DISK_SLEEP, psutil.STATUS_WAITING):
                 procs_blocked += 1
-        except (psutil.NoSuchProcess, psutil.AccessDenied):
+        except psutil.NoSuchProcess, psutil.AccessDenied:
             pass
 
     insert_system_metrics(

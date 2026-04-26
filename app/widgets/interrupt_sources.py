@@ -65,6 +65,4 @@ class InterruptSourcesWidget(BaseWidget):
                 paper_bgcolor="rgba(0,0,0,0)",
                 xaxis=dict(showgrid=True, gridcolor="rgba(128,128,128,0.2)"),
             )
-            st.plotly_chart(
-                fig, use_container_width=True, key=f"interrupt_sources_{time_range}"
-            )
+            st.plotly_chart(fig, width="stretch", key=f"interrupt_sources_{time_range}")

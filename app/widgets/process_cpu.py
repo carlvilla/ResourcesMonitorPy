@@ -52,9 +52,26 @@ class ProcessCpuWidget(BaseWidget):
             peak = df["cpu_percent"].max()
             avg = df["cpu_percent"].mean()
 
-            col_a, col_b = st.columns(2)
+            # Per-second rate of *involuntary* context switches — the closest
+            # measurable per-PID proxy for "interrupts caused by this process".
+            # The DB stores cumulative counters (BIGINT), so we differentiate
+            # over time. Negative diffs (process restart → counter reset) are
+            # clamped to 0.
+            invol_rate = pd.Series(dtype=float)
+            if "involuntary_ctx_switches" in df.columns and len(df) >= 2:
+                ts = pd.to_datetime(df["timestamp"])
+                dt = ts.diff().dt.total_seconds()
+                d_ctx = df["involuntary_ctx_switches"].astype("float").diff()
+                invol_rate = (d_ctx / dt).clip(lower=0).dropna()
+
+            avg_invol = invol_rate.mean() if not invol_rate.empty else 0.0
+            peak_invol = invol_rate.max() if not invol_rate.empty else 0.0
+
+            col_a, col_b, col_c, col_d = st.columns(4)
             col_a.metric("Average CPU", f"{avg:.1f}%")
             col_b.metric("Peak CPU", f"{peak:.1f}%")
+            col_c.metric("Avg Interrupts/s", f"{avg_invol:.0f}")
+            col_d.metric("Peak Interrupts/s", f"{peak_invol:.0f}")
 
             fig = go.Figure(
                 go.Scatter(
@@ -81,6 +98,6 @@ class ProcessCpuWidget(BaseWidget):
             )
             st.plotly_chart(
                 fig,
-                use_container_width=True,
+                width="stretch",
                 key=f"process_cpu_{selected}_{time_range}",
             )

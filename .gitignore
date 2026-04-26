@@ -14,6 +14,7 @@ wheels/
 
 # Log
 logs/collector.log
+logs/docker_containers.log
 
 # Private files
 test.py

@@ -76,6 +76,4 @@ class InterruptsCtxSwitchesWidget(BaseWidget):
                 xaxis=dict(showgrid=True, gridcolor="rgba(128,128,128,0.2)"),
                 yaxis_gridcolor="rgba(128,128,128,0.2)",
             )
-            st.plotly_chart(
-                fig, use_container_width=True, key=f"interrupts_ctx_{time_range}"
-            )
+            st.plotly_chart(fig, width="stretch", key=f"interrupts_ctx_{time_range}")

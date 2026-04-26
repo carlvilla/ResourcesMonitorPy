@@ -47,6 +47,22 @@ class DatabaseManager:
         """MySQL expression that floors timestamp to bucket-second intervals."""
         return f"FROM_UNIXTIME(FLOOR(UNIX_TIMESTAMP({col}) / {bucket}) * {bucket})"
 
+    # ── Diagnostics ────────────────────────────────────────────────────────
+
+    def get_table_row_counts(self) -> dict[str, int]:
+        """Row count for each metrics table (used by the sidebar diagnostics)."""
+        tables = (
+            "system_metrics",
+            "cpu_core_metrics",
+            "interrupt_sources",
+            "process_metrics",
+        )
+        counts: dict[str, int] = {}
+        for table in tables:
+            df = self._query(f"SELECT COUNT(*) AS n FROM {table}")
+            counts[table] = int(df.iloc[0]["n"]) if not df.empty else 0
+        return counts
+
     # ── Latest snapshots (top panel) ───────────────────────────────────────
 
     def get_system_latest(self) -> pd.Series | None:
@@ -99,7 +115,9 @@ class DatabaseManager:
             """
             SELECT
                 timestamp,
-                AVG(cpu_percent) AS cpu_percent
+                AVG(cpu_percent) AS cpu_percent,
+                SUM(voluntary_ctx_switches)   AS voluntary_ctx_switches,
+                SUM(involuntary_ctx_switches) AS involuntary_ctx_switches
             FROM process_metrics
             WHERE timestamp >= :since AND name = :name
             GROUP BY timestamp

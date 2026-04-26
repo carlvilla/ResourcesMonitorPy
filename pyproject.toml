@@ -1,13 +1,14 @@
 [project]
 name = "macuianalyzerpy"
 version = "0.1.0"
-description = "Add your description here"
+description = "LLM-powered app that displays in real-time and analyze system resources and processes"
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
     "anthropic>=0.26.0",
     "debugpy>=1.8.20",
     "litellm>=1.83.14",
+    "markdown>=3.10.2",
     "mysql-connector-python>=8.3.0",
     "openai>=1.30.0",
     "pandas>=2.0.0",
@@ -17,9 +18,11 @@ dependencies = [
     "sqlalchemy>=2.0.0",
     "streamlit>=1.35.0",
     "streamlit-autorefresh>=1.0.1",
+    "weasyprint>=68.1",
 ]
 
 [dependency-groups]
 dev = [
+    "debugpy>=1.8.20",
     "pytest>=9.0.3",
 ]

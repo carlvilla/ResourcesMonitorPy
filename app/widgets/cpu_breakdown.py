@@ -50,7 +50,6 @@ class CpuBreakdownWidget(BaseWidget):
                 if col not in row.index:
                     continue
                 value = float(row[col] or 0.0)
-                print(f"SHOW {label}, VALUE {value}")
                 if value < 0.05:  # treat <0.05% as "not exposed"
                     continue
                 fig.add_trace(
@@ -82,9 +81,7 @@ class CpuBreakdownWidget(BaseWidget):
                 legend=dict(orientation="h", yanchor="bottom", y=1.0, x=0),
                 bargap=0.6,
             )
-            st.plotly_chart(
-                fig, use_container_width=True, key=f"cpu_breakdown_{time_range}"
-            )
+            st.plotly_chart(fig, width="stretch", key=f"cpu_breakdown_{time_range}")
             hidden = [s for _, s, _ in _SERIES if s not in shown]
             if hidden:
                 st.caption(f"Hidden (not exposed by this kernel): {', '.join(hidden)}.")

@@ -31,14 +31,16 @@ CREATE TABLE IF NOT EXISTS interrupt_sources (
 ) ENGINE=InnoDB;
 
 CREATE TABLE IF NOT EXISTS process_metrics (
-    id           BIGINT AUTO_INCREMENT PRIMARY KEY,
-    timestamp    DATETIME(3) NOT NULL,
-    pid          INT,
-    name         VARCHAR(255),
-    cpu_percent  FLOAT,
-    memory_mb    FLOAT,
-    status       VARCHAR(50),
-    num_threads  INT,
+    id                       BIGINT AUTO_INCREMENT PRIMARY KEY,
+    timestamp                DATETIME(3) NOT NULL,
+    pid                      INT,
+    name                     VARCHAR(255),
+    cpu_percent              FLOAT,
+    memory_mb                FLOAT,
+    status                   VARCHAR(50),
+    num_threads              INT,
+    voluntary_ctx_switches   BIGINT DEFAULT 0,
+    involuntary_ctx_switches BIGINT DEFAULT 0,
     INDEX idx_ts (timestamp),
     INDEX idx_name (name)
 ) ENGINE=InnoDB;

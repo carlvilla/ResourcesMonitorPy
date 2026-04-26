@@ -8,10 +8,22 @@ from widgets.base import BaseWidget
 
 # Distinct colours for up to 16 cores
 _CORE_COLOURS = [
-    "#FF6B6B", "#4ECDC4", "#45B7D1", "#96CEB4",
-    "#FFEAA7", "#DDA0DD", "#98D8C8", "#F7DC6F",
-    "#AED6F1", "#A9DFBF", "#F1948A", "#85C1E9",
-    "#FAD7A0", "#D7BDE2", "#A3E4D7", "#F9E79F",
+    "#FF6B6B",
+    "#4ECDC4",
+    "#45B7D1",
+    "#96CEB4",
+    "#FFEAA7",
+    "#DDA0DD",
+    "#98D8C8",
+    "#F7DC6F",
+    "#AED6F1",
+    "#A9DFBF",
+    "#F1948A",
+    "#85C1E9",
+    "#FAD7A0",
+    "#D7BDE2",
+    "#A3E4D7",
+    "#F9E79F",
 ]
 
 
@@ -80,4 +92,4 @@ class CpuPerCoreWidget(BaseWidget):
                 xaxis=dict(showgrid=True, gridcolor="rgba(128,128,128,0.2)"),
                 yaxis_gridcolor="rgba(128,128,128,0.2)",
             )
-            st.plotly_chart(fig, use_container_width=True, key=f"cpu_cores_{time_range}")
+            st.plotly_chart(fig, width="stretch", key=f"cpu_cores_{time_range}")
