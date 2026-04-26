@@ -1,5 +1,5 @@
 [project]
-name = "macuianalyzerpy"
+name = "resourcemonitorpy"
 version = "0.1.0"
 description = "LLM-powered app that displays in real-time and analyze system resources and processes"
 readme = "README.md"
