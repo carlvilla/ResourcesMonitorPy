@@ -1,17 +1,11 @@
 # ResourcesMonitorPy
 A Python web application for monitoring system resources and processes such as CPU usage, memory consumption or process overhead. The application includes a web interface to display the collected information in real-time and a LLM-powered analysis of the collected data to provide insights and recommendations for optimizing system performance.
 
-## Installation
+## Installation and Usage
 
 The application is formed by two components: a dockerized backend and frontend to persist and display system/processes information, and a Python script to collect the data and send it to the backend. The reason for this separation is to collect information from the processes in the host and not from the docker container. A future implementation will solve this issue.
 
-The collection script require installing the necessary python dependencies (found in the `pyproject.toml` file), which can be done by running the following command in the project root:
-```bash
-uv sync
-```
-
-## Usage
-The deployment of the necessary docker containers and the collection script can be done by running the following command in the project root:
+The installation and deployment of the necessary docker containers and the data collection script can be done by running the following command in the project root:
 ```bash
 ./start.sh
 ```
