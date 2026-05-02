@@ -16,6 +16,12 @@ wheels/
 logs/collector.log
 logs/docker_containers.log
 
-# Private files
+# Other files
 test.py
 .env
+.DS_Store
+.collector.pid
+.gitignore
+.sudo_refresher.pid
+.gitignore
+.docker_logs.pid
