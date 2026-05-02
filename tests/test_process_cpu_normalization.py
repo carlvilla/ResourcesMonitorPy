@@ -28,7 +28,7 @@ from collector import (
 
 def _fake_psutil_proc(cpu_raw: float):
     """Mimic the shape of `psutil.Process` returned by `process_iter`."""
-    return SimpleNamespace(
+    proc = SimpleNamespace(
         info={
             "pid": 1234,
             "name": "fakeproc",
@@ -38,6 +38,8 @@ def _fake_psutil_proc(cpu_raw: float):
             "num_threads": 4,
         }
     )
+    proc.num_ctx_switches = lambda: SimpleNamespace(voluntary=10, involuntary=2)
+    return proc
 
 
 # Range covers: idle, partial, exactly one core, exceeding cores ×100,
@@ -52,20 +54,22 @@ _RAW_CPU_VALUES = [0, 1, 50, 99, 100, 200, 400, 800, 1600, 9_999, 99_999]
 def test_psutil_sample_cpu_within_bounds(cpu_raw):
     sample = sample_process_via_psutil(_fake_psutil_proc(cpu_raw))
     assert sample is not None
-    _, _, cpu, _, _, _ = sample
+    _, _, cpu, *_ = sample
     assert 0.0 <= cpu <= 100.0
 
 
 def test_psutil_sample_returns_homogeneous_shape():
     sample = sample_process_via_psutil(_fake_psutil_proc(50.0))
     assert sample is not None
-    pid, name, cpu, mem_mb, status, threads = sample
+    pid, name, cpu, mem_mb, status, threads, vol_ctx, invol_ctx = sample
     assert isinstance(pid, int)
     assert isinstance(name, str)
     assert isinstance(cpu, float)
     assert isinstance(mem_mb, float)
     assert isinstance(status, str)
     assert isinstance(threads, int)
+    assert isinstance(vol_ctx, int)
+    assert isinstance(invol_ctx, int)
 
 
 # ── ps (WindowServer) sampler path ────────────────────────────────────────
@@ -80,7 +84,7 @@ def test_ps_sample_cpu_within_bounds(monkeypatch, cpu_raw):
     )
     sample = sample_process_via_ps(99, "WindowServer")
     assert sample is not None
-    _, _, cpu, _, _, _ = sample
+    _, _, cpu, *_ = sample
     assert 0.0 <= cpu <= 100.0
 
 
