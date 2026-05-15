@@ -7,6 +7,10 @@ A Python web application for monitoring system resources and processes such as C
 
 ## Installation and Usage
 
+The following software is required to run the application:
+- [Docker](https://www.docker.com/)
+- [uv](https://github.com/astral-sh/uv)
+
 The application is formed by two components: a dockerized backend and frontend to persist and display system/processes information, and a Python script to collect the data and send it to the backend. The reason for this separation is to collect information from the processes in the host and not from the docker container. A future implementation will solve this issue.
 
 The installation and deployment of the necessary docker containers and the data collection script can be done by running the following command in the project root:
